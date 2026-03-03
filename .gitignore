@@ -1,3 +1,5 @@
 # 排除 datasets 和 experiments 文件夹
 datasets/
 experiments/
+# 忽略 Conda 安装包
+Miniconda3-py39_24.5.0-0-Linux-x86_64.sh
