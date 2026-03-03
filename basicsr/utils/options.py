@@ -123,6 +123,7 @@ def parse_options(root_path, is_train=True):
         init_dist_deepspeed(args.local_rank)
     else:
         if args.launcher == 'none':
+            #import ipdb; ipdb.set_trace()
             opt['dist'] = False
             print('Disable distributed.', flush=True)
         else:
@@ -183,10 +184,12 @@ def parse_options(root_path, is_train=True):
 
     if is_train:
         experiments_root = opt['path'].get('experiments_root')
+        print("..........................................")
+        print(experiments_root)
         if experiments_root is None:
             experiments_root = osp.join(root_path, 'experiments')
         experiments_root = osp.join(experiments_root, opt['name'])
-
+        experiments_root = "/home/huqiongyang/code/CATANet/experiments/channel_32_layer1_20times_initilize"
         opt['path']['experiments_root'] = experiments_root
         opt['path']['models'] = osp.join(experiments_root, 'models')
         opt['path']['training_states'] = osp.join(experiments_root, 'training_states')

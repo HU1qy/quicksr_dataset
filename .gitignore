@@ -1,0 +1,3 @@
+# 排除 datasets 和 experiments 文件夹
+datasets/
+experiments/

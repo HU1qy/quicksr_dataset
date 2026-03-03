@@ -23,10 +23,31 @@ def mod_crop(img, scale):
     return img
 
 
+# def paired_random_crop(img_gts, img_lqs, gt_patch_size, scale, gt_path=None):
+#     """Paired random crop. Support Numpy array and Tensor inputs.
+
+#     It crops lists of lq and gt images with corresponding locations.
+
+#     Args:
+#         img_gts (list[ndarray] | ndarray | list[Tensor] | Tensor): GT images. Note that all images
+#             should have the same shape. If the input is an ndarray, it will
+#             be transformed to a list containing itself.
+#         img_lqs (list[ndarray] | ndarray): LQ images. Note that all images
+#             should have the same shape. If the input is an ndarray, it will
+#             be transformed to a list containing itself.
+#         gt_patch_size (int): GT patch size.
+#         scale (int): Scale factor.
+#         gt_path (str): Path to ground-truth. Default: None.
+
+#     Returns:
+#         list[ndarray] | ndarray: GT images and LQ images. If returned results
+#             only have one element, just return ndarray.
+#     """
+
+
 def paired_random_crop(img_gts, img_lqs, gt_patch_size, scale, gt_path=None):
     """Paired random crop. Support Numpy array and Tensor inputs.
-
-    It crops lists of lq and gt images with corresponding locations.
+    Modified to support non-integer scale (e.g., 1.5x) for SR.
 
     Args:
         img_gts (list[ndarray] | ndarray | list[Tensor] | Tensor): GT images. Note that all images
@@ -36,7 +57,7 @@ def paired_random_crop(img_gts, img_lqs, gt_patch_size, scale, gt_path=None):
             should have the same shape. If the input is an ndarray, it will
             be transformed to a list containing itself.
         gt_patch_size (int): GT patch size.
-        scale (int): Scale factor.
+        scale (int | float): Scale factor (support 1.5, 2, 3, 4 etc.).
         gt_path (str): Path to ground-truth. Default: None.
 
     Returns:
@@ -58,19 +79,38 @@ def paired_random_crop(img_gts, img_lqs, gt_patch_size, scale, gt_path=None):
     else:
         h_lq, w_lq = img_lqs[0].shape[0:2]
         h_gt, w_gt = img_gts[0].shape[0:2]
-    lq_patch_size = gt_patch_size // scale
 
-    if h_gt != h_lq * scale or w_gt != w_lq * scale:
-        raise ValueError(f'Scale mismatches. GT ({h_gt}, {w_gt}) is not {scale}x ',
-                         f'multiplication of LQ ({h_lq}, {w_lq}).')
+    # ========== 关键修改1：兼容非整数scale，强制转为整数（避免浮点数索引） ==========
+    scale = float(scale)  # 统一转为浮点数，兼容1.5
+    lq_patch_size = int(round(gt_patch_size / scale))  # 显式转整数，避免浮点数
+    # =============================================================================
+
+    # ========== 关键修改2：浮点数尺寸校验（允许微小误差，适配1.5倍缩放） ==========
+    # 计算LQ×scale后的GT尺寸（四舍五入），允许1个像素的误差
+    calc_h_gt = round(h_lq * scale)
+    calc_w_gt = round(w_lq * scale)
+    if abs(h_gt - calc_h_gt) > 1 or abs(w_gt - calc_w_gt) > 1:
+        raise ValueError(
+            f'Scale mismatches. GT ({h_gt}, {w_gt}) is not {scale}x multiplication of LQ ({h_lq}, {w_lq}). '
+            f'Calculated GT size from LQ: ({calc_h_gt}, {calc_w_gt})'
+        )
+    # =============================================================================
+
+    # ========== 关键修改3：校验LQ patch尺寸时用整数判断 ==========
     if h_lq < lq_patch_size or w_lq < lq_patch_size:
-        raise ValueError(f'LQ ({h_lq}, {w_lq}) is smaller than patch size '
-                         f'({lq_patch_size}, {lq_patch_size}). '
-                         f'Please remove {gt_path}.')
+        raise ValueError(
+            f'LQ ({h_lq}, {w_lq}) is smaller than patch size ({lq_patch_size}, {lq_patch_size}). '
+            f'(GT patch size: {gt_patch_size}, scale: {scale}) Please remove {gt_path}.'
+        )
+    # =============================================================================
 
+    # ========== 关键修改4：确保top/left是整数（强制类型转换） ==========
     # randomly choose top and left coordinates for lq patch
-    top = random.randint(0, h_lq - lq_patch_size)
-    left = random.randint(0, w_lq - lq_patch_size)
+    max_top = int(h_lq - lq_patch_size)  # 强制转整数，避免浮点数
+    max_left = int(w_lq - lq_patch_size)
+    top = random.randint(0, max_top)
+    left = random.randint(0, max_left)
+    # =============================================================================
 
     # crop lq patch
     if input_type == 'Tensor':
@@ -78,17 +118,67 @@ def paired_random_crop(img_gts, img_lqs, gt_patch_size, scale, gt_path=None):
     else:
         img_lqs = [v[top:top + lq_patch_size, left:left + lq_patch_size, ...] for v in img_lqs]
 
+    # ========== 关键修改5：GT裁剪起始位置四舍五入后转整数 ==========
     # crop corresponding gt patch
-    top_gt, left_gt = int(top * scale), int(left * scale)
+    top_gt = int(round(top * scale))  # 四舍五入后转整数，避免浮点误差
+    left_gt = int(round(left * scale))
+    # =============================================================================
+
     if input_type == 'Tensor':
         img_gts = [v[:, :, top_gt:top_gt + gt_patch_size, left_gt:left_gt + gt_patch_size] for v in img_gts]
     else:
         img_gts = [v[top_gt:top_gt + gt_patch_size, left_gt:left_gt + gt_patch_size, ...] for v in img_gts]
+    
     if len(img_gts) == 1:
         img_gts = img_gts[0]
     if len(img_lqs) == 1:
         img_lqs = img_lqs[0]
     return img_gts, img_lqs
+    # if not isinstance(img_gts, list):
+    #     img_gts = [img_gts]
+    # if not isinstance(img_lqs, list):
+    #     img_lqs = [img_lqs]
+
+    # # determine input type: Numpy array or Tensor
+    # input_type = 'Tensor' if torch.is_tensor(img_gts[0]) else 'Numpy'
+
+    # if input_type == 'Tensor':
+    #     h_lq, w_lq = img_lqs[0].size()[-2:]
+    #     h_gt, w_gt = img_gts[0].size()[-2:]
+    # else:
+    #     h_lq, w_lq = img_lqs[0].shape[0:2]
+    #     h_gt, w_gt = img_gts[0].shape[0:2]
+    # lq_patch_size = gt_patch_size // scale
+
+    # if h_gt != h_lq * scale or w_gt != w_lq * scale:
+    #     raise ValueError(f'Scale mismatches. GT ({h_gt}, {w_gt}) is not {scale}x ',
+    #                      f'multiplication of LQ ({h_lq}, {w_lq}).')
+    # if h_lq < lq_patch_size or w_lq < lq_patch_size:
+    #     raise ValueError(f'LQ ({h_lq}, {w_lq}) is smaller than patch size '
+    #                      f'({lq_patch_size}, {lq_patch_size}). '
+    #                      f'Please remove {gt_path}.')
+
+    # # randomly choose top and left coordinates for lq patch
+    # top = random.randint(0, h_lq - lq_patch_size)
+    # left = random.randint(0, w_lq - lq_patch_size)
+
+    # # crop lq patch
+    # if input_type == 'Tensor':
+    #     img_lqs = [v[:, :, top:top + lq_patch_size, left:left + lq_patch_size] for v in img_lqs]
+    # else:
+    #     img_lqs = [v[top:top + lq_patch_size, left:left + lq_patch_size, ...] for v in img_lqs]
+
+    # # crop corresponding gt patch
+    # top_gt, left_gt = int(top * scale), int(left * scale)
+    # if input_type == 'Tensor':
+    #     img_gts = [v[:, :, top_gt:top_gt + gt_patch_size, left_gt:left_gt + gt_patch_size] for v in img_gts]
+    # else:
+    #     img_gts = [v[top_gt:top_gt + gt_patch_size, left_gt:left_gt + gt_patch_size, ...] for v in img_gts]
+    # if len(img_gts) == 1:
+    #     img_gts = img_gts[0]
+    # if len(img_lqs) == 1:
+    #     img_lqs = img_lqs[0]
+    # return img_gts, img_lqs
 
 
 def augment(imgs, hflip=True, rotation=True, flows=None, return_status=False):

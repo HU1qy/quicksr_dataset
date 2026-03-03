@@ -65,6 +65,10 @@ class PairedImageDataset(data.Dataset):
             self.file_client = FileClient(self.io_backend_opt.pop('type'), **self.io_backend_opt)
 
         scale = self.opt['scale']
+        try:
+            scale = float(scale)
+        except (ValueError, TypeError):
+            raise ValueError(f"scale must be a number, got {type(scale)}: {scale}")
 
         # Load gt and lq images. Dimension order: HWC; channel order: BGR;
         # image range: [0, 1], float32.
@@ -94,16 +98,35 @@ class PairedImageDataset(data.Dataset):
         # crop the unmatched GT images during validation or testing, especially for SR benchmark datasets
         # TODO: It is better to update the datasets, rather than force to crop
         if self.opt['phase'] != 'train':
-            img_gt = img_gt[0:img_lq.shape[0] * scale, 0:img_lq.shape[1] * scale, :]
+            lq_h, lq_w = img_lq.shape[0], img_lq.shape[1]
+            gt_h = int(round(lq_h * scale))  # 四舍五入
+            gt_w = int(round(lq_w * scale))
+            # 第三步：兜底（确保索引是整数，避免极端情况）
+            gt_h = max(1, gt_h)  # 至少1像素
+            gt_w = max(1, gt_w)
+            # 第四步：切片（仅用整数）
+            img_gt = img_gt[:gt_h, :gt_w, :]  # 简化写法，和0:gt_h等价，更安全
 
-        # BGR to RGB, HWC to CHW, numpy to tensor
+        # 后续逻辑（不变）
         img_gt, img_lq = img2tensor([img_gt, img_lq], bgr2rgb=True, float32=True)
-        # normalize
         if self.mean is not None or self.std is not None:
             normalize(img_lq, self.mean, self.std, inplace=True)
             normalize(img_gt, self.mean, self.std, inplace=True)
 
         return {'lq': img_lq, 'gt': img_gt, 'lq_path': lq_path, 'gt_path': gt_path}
+        #     img_gt = img_gt[0:img_lq.shape[0] * scale, 0:img_lq.shape[1] * scale, :]
+
+        # # BGR to RGB, HWC to CHW, numpy to tensor
+        #     h_gt = int(round(img_lq.shape[0] * scale))  # 计算GT高度并转整数
+        #     w_gt = int(round(img_lq.shape[1] * scale))  # 计算GT宽度并转整数
+        #     img_gt = img_gt[0:h_gt, 0:w_gt, :]
+        # img_gt, img_lq = img2tensor([img_gt, img_lq], bgr2rgb=True, float32=True)
+        # # normalize
+        # if self.mean is not None or self.std is not None:
+        #     normalize(img_lq, self.mean, self.std, inplace=True)
+        #     normalize(img_gt, self.mean, self.std, inplace=True)
+
+        # return {'lq': img_lq, 'gt': img_gt, 'lq_path': lq_path, 'gt_path': gt_path}
 
     def __len__(self):
         return len(self.paths)

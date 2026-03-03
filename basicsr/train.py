@@ -4,6 +4,9 @@ import math
 import time
 import torch
 from os import path as osp
+from torchinfo import summary
+import sys
+sys.path.append("/home/huqiongyang/code/CATANet") 
 
 from basicsr.data import build_dataloader, build_dataset
 from basicsr.data.data_sampler import EnlargedSampler
@@ -109,8 +112,8 @@ def train_pipeline(root_path):
     # mkdir for experiments and logger
     if resume_state is None:
         make_exp_dirs(opt)
-        if opt['logger'].get('use_tb_logger') and 'debug' not in opt['name'] and opt['rank'] == 0:
-            mkdir_and_rename(osp.join(opt['root_path'], 'tb_logger', opt['name']))
+        # if opt['logger'].get('use_tb_logger') and 'debug' not in opt['name'] and opt['rank'] == 0:
+        #     mkdir_and_rename(osp.join(opt['root_path'], 'tb_logger', opt['name']))
 
     # copy the yml file to the experiment root
     copy_opt_file(args.opt, opt['path']['experiments_root'])
@@ -130,6 +133,23 @@ def train_pipeline(root_path):
 
     # create model
     model = build_model(opt)
+
+    test_input = torch.randn(1, 3, 80, 80).to(model.device)  # B=1, C=3, H=80, W=80
+
+    # 打印结构化的模型信息（含输入输出维度）
+    print("="*80)
+    print("Model Summary (with Input/Output Shape):")
+    print("="*80)
+    summary(
+        model.net_g,  # 核心网络
+        input_size=(1, 3, 80, 80),  # 测试输入尺寸
+        device=str(model.device),   # 设备（cpu/cuda）
+        col_width=20,
+        col_names=["input_size", "output_size", "num_params", "trainable"],
+        depth=5  # 显示的层级深度，5足够看到所有子层
+    )
+    print("="*80)
+  
     if enable_deepspeed:
         model.init_deepspeed(args)
         
@@ -169,7 +189,7 @@ def train_pipeline(root_path):
     logger.info(f'Start training from epoch: {start_epoch}, iter: {current_iter}')
     data_timer, iter_timer = AvgTimer(), AvgTimer()
     start_time = time.time()
-
+    #import ipdb; ipdb.set_trace()   
     for epoch in range(start_epoch, total_epochs + 1):
         train_sampler.set_epoch(epoch)
         prefetcher.reset()
@@ -177,7 +197,7 @@ def train_pipeline(root_path):
 
         while train_data is not None:
             data_timer.record()
-
+    
             current_iter += 1
             if current_iter > total_iters:
                 break
@@ -214,9 +234,9 @@ def train_pipeline(root_path):
             data_timer.start()
             iter_timer.start()
             train_data = prefetcher.next()
-        # end of iter
+      #  end of iter
 
-    # end of epoch
+   # end of epoch
 
     consumed_time = str(datetime.timedelta(seconds=int(time.time() - start_time)))
     logger.info(f'End of training. Time consumed: {consumed_time}')
